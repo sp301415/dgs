@@ -1,7 +1,6 @@
 package dgs_test
 
 import (
-	"math"
 	"math/rand"
 	"testing"
 
@@ -20,7 +19,6 @@ func TestReverseCDT(t *testing.T) {
 	}
 
 	meanSampled, sigmaSampled := stat.MeanStdDev(samples, nil)
-	sigmaSampled *= math.Sqrt(2 * math.Pi)
 	if meanSampled < mean-5 || meanSampled > mean+5 {
 		t.Errorf("mean: expected %v, got %v", mean, meanSampled)
 	}
