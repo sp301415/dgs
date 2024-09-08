@@ -8,7 +8,7 @@ import (
 const (
 	// BaseLog is the log of number of the base sampler.
 	// Increasing this value will result in faster sampling, but with more memory usage.
-	BaseLog = 8
+	BaseLog = 4
 
 	// PrecLog is the log of the precision of the sampler.
 	// Should be a multiple of BaseLog.

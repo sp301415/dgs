@@ -1,16 +1,43 @@
 package dgs_test
 
 import (
-	"math/rand"
+	"math"
 	"testing"
 
 	"github.com/sp301415/dgs"
-	"gonum.org/v1/gonum/stat"
 )
 
+const (
+	N = 1024
+)
+
+func meanStdDev(v []float64) (mean, stdDev float64) {
+	sum := 0.0
+	for _, x := range v {
+		sum += x
+	}
+
+	mean = sum / float64(len(v))
+
+	variance := 0.0
+	for _, x := range v {
+		variance += (x - mean) * (x - mean)
+	}
+	stdDev = math.Sqrt(variance / float64(len(v)))
+
+	return
+}
+
+func meanStdDevSampleBound(meanSample, stdDevSample float64) (meanBound, stdDevBound float64) {
+	k := 3.29 // From the GLITCH test suite
+	meanBound = meanSample + k*stdDevSample/math.Sqrt(N)
+	stdDevBound = stdDevSample + k*stdDevSample/math.Sqrt(2*(N-1))
+	return
+}
+
 func TestReverseCDT(t *testing.T) {
-	mean := (rand.Float64() * 128) - 64
-	sigma := rand.Float64() * 64
+	mean := 0.0
+	sigma := 4.0
 
 	s := dgs.NewReverseCDTSampler(mean, sigma)
 	samples := make([]float64, 1024)
@@ -18,21 +45,20 @@ func TestReverseCDT(t *testing.T) {
 		samples[i] = float64(s.Sample())
 	}
 
-	meanSampled, sigmaSampled := stat.MeanStdDev(samples, nil)
-	if meanSampled < mean-5 || meanSampled > mean+5 {
+	meanSampled, sigmaSampled := meanStdDev(samples)
+	meanBound, sigmaBound := meanStdDevSampleBound(meanSampled, sigmaSampled)
+
+	if math.Abs(meanSampled) > meanBound {
 		t.Errorf("mean: expected %v, got %v", mean, meanSampled)
 	}
-	if sigmaSampled < sigma-5 || sigmaSampled > sigma+5 {
+	if math.Abs(sigmaSampled) > sigmaBound {
 		t.Errorf("sigma: expected %v, got %v", sigma, sigmaSampled)
 	}
 }
 
 func TestConvolution(t *testing.T) {
-	mean := (rand.Float64() * 128) - 64
-	var sigma float64
-	for sigma < 36 {
-		sigma = rand.Float64() * 128
-	}
+	mean := math.Exp2(5)
+	sigma := math.Exp2(15)
 
 	s := dgs.NewConvolutionSampler()
 	samples := make([]float64, 1024)
@@ -40,11 +66,13 @@ func TestConvolution(t *testing.T) {
 		samples[i] = float64(s.Sample(mean, sigma))
 	}
 
-	meanSampled, sigmaSampled := stat.MeanStdDev(samples, nil)
-	if meanSampled < mean-5 || meanSampled > mean+5 {
+	meanSampled, sigmaSampled := meanStdDev(samples)
+	meanBound, sigmaBound := meanStdDevSampleBound(meanSampled, sigmaSampled)
+
+	if math.Abs(meanSampled) > meanBound {
 		t.Errorf("mean: expected %v, got %v", mean, meanSampled)
 	}
-	if sigmaSampled < sigma-5 || sigmaSampled > sigma+5 {
+	if math.Abs(sigmaSampled) > sigmaBound {
 		t.Errorf("sigma: expected %v, got %v", sigma, sigmaSampled)
 	}
 }
