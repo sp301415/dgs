@@ -3,6 +3,8 @@ package dgs
 import (
 	"math"
 	"math/big"
+
+	"github.com/ALTree/bigfloat"
 )
 
 const (
@@ -11,7 +13,6 @@ const (
 	BaseLog = 4
 
 	// PrecLog is the log of the precision of the sampler.
-	// Should be a multiple of BaseLog.
 	PrecLog = 30
 
 	// sampleDepth is ceil(PrecLog / BaseLog).
@@ -39,7 +40,7 @@ type ConvolutionSampler struct {
 // NewConvolutionSampler creates a new ConvolutionSampler.
 func NewConvolutionSampler() *ConvolutionSampler {
 	z := [level + 1]int64{}
-	s0 := 34.0
+	s0 := 4 * math.Sqrt2 * Eta
 
 	sMax := s0
 	for i := 1; i <= level; i++ {
@@ -58,11 +59,11 @@ func NewConvolutionSampler() *ConvolutionSampler {
 
 	s0Big := big.NewFloat(s0).SetPrec(128)
 	sBarBig := big.NewFloat(0).SetPrec(128)
-	basePowBig := big.NewFloat(0).SetPrec(128)
-	oneBig := big.NewFloat(1).SetPrec(128)
+	twoBig := big.NewFloat(2).SetPrec(128)
+	expBig := big.NewFloat(0).SetPrec(128)
 	for i := 0; i < sampleDepth; i++ {
-		basePowBig.SetUint64(1 << (2 * i * BaseLog)) // b^2i
-		basePowBig.Quo(oneBig, basePowBig)           // b^-2i
+		expBig.SetInt64(int64(-2 * i * BaseLog))
+		basePowBig := bigfloat.Pow(twoBig, expBig)
 		sBarBig.Add(sBarBig, basePowBig)
 	}
 	sBarBig.Sqrt(sBarBig)
@@ -116,7 +117,17 @@ func (s *ConvolutionSampler) Sample(center, sigma float64) int64 {
 	const LowPrecLog = 53 - PrecLog
 	ccFrac64Hi := int64(ccFrac64 >> LowPrecLog)
 	ccFrac64Lo := ccFrac64 & (1<<LowPrecLog - 1)
-	ccFrac64Hi += int64(s.BaseSamplers[0].UniformSampler.SampleBernoulli(float64(ccFrac64Lo) / (1 << LowPrecLog)))
+	r := s.BaseSamplers[0].UniformSampler.Sample()
+	for i := LowPrecLog - 1; i >= 0; i-- {
+		b := (r >> i) & 1
+		ccFrac64LoBit := (ccFrac64Lo >> i) & 1
+		if b > ccFrac64LoBit {
+			return s.sampleC(ccFrac64Hi) + ccInt
+		}
+		if b < ccFrac64LoBit {
+			return s.sampleC(ccFrac64Hi+1) + ccInt
+		}
+	}
 
-	return s.sampleC(ccFrac64Hi) + ccInt
+	return s.sampleC(ccFrac64Hi+1) + ccInt
 }

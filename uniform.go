@@ -2,7 +2,6 @@ package dgs
 
 import (
 	"crypto/rand"
-	"math"
 )
 
 const BufferSize = 4096
@@ -49,14 +48,4 @@ func (s *UniformSampler) SampleBit() uint64 {
 	// TODO: Make optimal use of buffer.
 	// Now, it uses 8 bytes to sample only one bit.
 	return s.Sample() & 1
-}
-
-// SampleBernoulli samples random bit with given probability.
-// p should be in [0, 1].
-func (s *UniformSampler) SampleBernoulli(p float64) uint64 {
-	p64 := uint64(math.Round(math.Ldexp(p, 64)))
-	if s.Sample() < p64 {
-		return 1
-	}
-	return 0
 }

@@ -55,9 +55,6 @@ func NewReverseCDTSampler(center, sigma float64) *ReverseCDTSampler {
 	sBigDoubleSq.Add(sBigDoubleSq, sBigDoubleSq)
 	sBigDoubleSq.Neg(sBigDoubleSq)
 
-	piBig := big.NewFloat(math.Pi).SetPrec(128) // -pi
-	piBig.Neg(piBig)
-
 	// Buffers
 	xBig := big.NewFloat(0).SetPrec(128)
 	logRhoBig := big.NewFloat(0).SetPrec(128)
