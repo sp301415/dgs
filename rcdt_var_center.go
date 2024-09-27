@@ -7,10 +7,10 @@ import (
 const (
 	// BaseLog is the log of number of the base sampler.
 	// Increasing this value will result in faster sampling, but with more memory usage.
-	BaseLog = 6
+	BaseLog = 4
 
 	// SampleDepth is ceil(PrecLog / BaseLog).
-	SampleDepth = 5
+	SampleDepth = 8
 
 	// hiPrecLog is the precision of the sampler.
 	hiPrecLog = BaseLog * SampleDepth
