@@ -37,10 +37,10 @@ func meanStdDevSampleBound(meanSample, stdDevSample float64) (meanBound, stdDevB
 
 func TestReverseCDT(t *testing.T) {
 	mean := 0.0
-	sigma := 4.0
+	sigma := 4.0 * math.Sqrt(2*math.Pi)
 
 	s := dgs.NewReverseCDTSampler(mean, sigma)
-	samples := make([]float64, 1024)
+	samples := make([]float64, N)
 	for i := range samples {
 		samples[i] = float64(s.Sample())
 	}
@@ -56,12 +56,33 @@ func TestReverseCDT(t *testing.T) {
 	}
 }
 
-func TestConvolution(t *testing.T) {
-	mean := math.Exp2(5)
-	sigma := math.Exp2(15)
+func TestReverseCDTVarCenter(t *testing.T) {
+	mean := 0.7
+	sigma := 4.0 * math.Sqrt(2*math.Pi)
 
-	s := dgs.NewConvolutionSampler()
-	samples := make([]float64, 1024)
+	s := dgs.NewReverseCDTVarCenterSampler(sigma)
+	samples := make([]float64, N)
+	for i := range samples {
+		samples[i] = float64(s.Sample(mean))
+	}
+
+	meanSampled, sigmaSampled := meanStdDev(samples)
+	meanBound, sigmaBound := meanStdDevSampleBound(meanSampled, sigmaSampled)
+
+	if math.Abs(meanSampled) > meanBound {
+		t.Errorf("mean: expected %v, got %v", mean, meanSampled)
+	}
+	if math.Abs(sigmaSampled) > sigmaBound {
+		t.Errorf("sigma: expected %v, got %v", sigma, sigmaSampled)
+	}
+}
+
+func TestConvolution(t *testing.T) {
+	mean := 100.7
+	sigma := 32 * math.Sqrt(2*math.Pi)
+
+	s := dgs.NewConvolutionSampler(1 << 8)
+	samples := make([]float64, N)
 	for i := range samples {
 		samples[i] = float64(s.Sample(mean, sigma))
 	}

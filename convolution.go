@@ -2,132 +2,69 @@ package dgs
 
 import (
 	"math"
-	"math/big"
-
-	"github.com/ALTree/bigfloat"
 )
 
-const (
-	// BaseLog is the log of number of the base sampler.
-	// Increasing this value will result in faster sampling, but with more memory usage.
-	BaseLog = 4
+const Eta = 6.0
 
-	// PrecLog is the log of the precision of the sampler.
-	PrecLog = 30
-
-	// sampleDepth is ceil(PrecLog / BaseLog).
-	sampleDepth = (PrecLog + BaseLog - 1) / BaseLog
-
-	// Eta is the smoothing parameter of Z.
-	Eta = 6
-
-	// level is the number of combining depth for convolution.
-	level = 3
-)
-
-// ConvolutionSampler is a Discrete Gaussian sampler based on Convolution Theorem.
-// Recommended for large and varying center and sigma.
+// ConvolutionSampler is a Discrete Gaussian sampler based on Convolution.
+//
+// Note that the stdandard devation of the samples is sigma/sqrt(2pi).
 type ConvolutionSampler struct {
-	// BaseSamplers is a slice of base samplers.
-	BaseSamplers [1 << BaseLog]*ReverseCDTSampler
+	BaseSampler *ReverseCDTVarCenterSampler
 
-	// z[0] = 0
-	z    [level + 1]int64
-	sMax float64
-	sBar float64
+	z      []int64
+	s      []float64
+	sigBar float64
 }
 
-// NewConvolutionSampler creates a new ConvolutionSampler.
-func NewConvolutionSampler() *ConvolutionSampler {
-	z := [level + 1]int64{}
-	s0 := 4 * math.Sqrt2 * Eta
+// NewConvolutionSampler creates a new ReverseCDTVarStdDevSampler.
+func NewConvolutionSampler(maxSigma float64) *ConvolutionSampler {
+	convolveDepth := int(math.Ceil(math.Log2(math.Log2(maxSigma))))
 
-	sMax := s0
-	for i := 1; i <= level; i++ {
-		z1 := int64(math.Floor(sMax / (math.Sqrt2 * Eta)))
-		z2 := max(z1-1, 1)
-
-		z[i] = z1
-		sMax = math.Sqrt(float64(z1*z1+z2*z2) * sMax * sMax)
+	z := make([]int64, convolveDepth+1)
+	s := make([]float64, convolveDepth+1)
+	s[0] = 4 * math.Sqrt2 * Eta
+	for i := 1; i < convolveDepth+1; i++ {
+		z[i] = int64(math.Floor(s[i-1] / (math.Sqrt2 * Eta)))
+		s[i] = math.Sqrt(float64(z[i]*z[i]+max(1, (z[i]-1)*(z[i]-1)))) * s[i-1]
 	}
 
-	baseSamplers := [1 << BaseLog]*ReverseCDTSampler{}
-	for i := 0; i < 1<<BaseLog; i++ {
-		c := float64(i) / (1 << BaseLog)
-		baseSamplers[i] = NewReverseCDTSampler(c, s0)
+	sigBar := 0.0
+	for i := 0; i < SampleDepth; i++ {
+		sigBar += math.Pow(1<<BaseLog, -2*float64(i))
 	}
-
-	s0Big := big.NewFloat(s0).SetPrec(128)
-	sBarBig := big.NewFloat(0).SetPrec(128)
-	twoBig := big.NewFloat(2).SetPrec(128)
-	expBig := big.NewFloat(0).SetPrec(128)
-	for i := 0; i < sampleDepth; i++ {
-		expBig.SetInt64(int64(-2 * i * BaseLog))
-		basePowBig := bigfloat.Pow(twoBig, expBig)
-		sBarBig.Add(sBarBig, basePowBig)
-	}
-	sBarBig.Sqrt(sBarBig)
-	sBarBig.Mul(sBarBig, s0Big)
-	sBar, _ := sBarBig.Float64()
+	sigBar *= s[0]
 
 	return &ConvolutionSampler{
-		BaseSamplers: baseSamplers,
+		BaseSampler: NewReverseCDTVarCenterSampler(s[0]),
 
-		z:    z,
-		sMax: sMax,
-		sBar: sBar,
+		z:      z,
+		s:      s,
+		sigBar: sigBar,
 	}
+}
+
+// Sample samples from the distribution.
+func (s *ConvolutionSampler) Sample(center, sigma float64) int64 {
+	var m int
+	for m = 0; m < len(s.s); m++ {
+		if s.s[m] >= sigma {
+			break
+		}
+	}
+
+	x := s.sampleI(m)
+	K := math.Sqrt(sigma*sigma-s.sigBar*s.sigBar) / s.s[m]
+	return s.BaseSampler.Sample(center + K*float64(x))
 }
 
 func (s *ConvolutionSampler) sampleI(i int) int64 {
 	if i == 0 {
-		return s.BaseSamplers[0].Sample()
+		return s.BaseSampler.BaseSamplers[0].Sample()
 	}
+
 	x1 := s.sampleI(i - 1)
 	x2 := s.sampleI(i - 1)
+
 	return s.z[i]*x1 + max(1, s.z[i]-1)*x2
-}
-
-func (s *ConvolutionSampler) sampleC(c int64) int64 {
-	const mask = (1 << BaseLog) - 1
-	var r int64
-	for i := 0; i < sampleDepth; i++ {
-		r = s.BaseSamplers[mask&c].Sample()
-		if mask&c > 0 && c < 0 {
-			r -= 1
-		}
-		c /= 1 << BaseLog
-		c += r
-	}
-	return c
-}
-
-// Sample samples a Discrete Gaussian.
-// sigma must be larger than 4sqrt(2)*Eta ~ 36, and smaller than s[max] ~ 2^40.
-func (s *ConvolutionSampler) Sample(center, sigma float64) int64 {
-	x := s.sampleI(level)
-	K := math.Sqrt(sigma*sigma-s.sBar*s.sBar) / s.sMax
-	cc := center + K*float64(x)
-
-	ccFrac := cc - math.Floor(cc)
-	ccInt := int64(cc - ccFrac)
-	ccFrac64 := uint64(ccFrac * (1 << 53))
-
-	// Randomized rounding
-	const LowPrecLog = 53 - PrecLog
-	ccFrac64Hi := int64(ccFrac64 >> LowPrecLog)
-	ccFrac64Lo := ccFrac64 & (1<<LowPrecLog - 1)
-	r := s.BaseSamplers[0].UniformSampler.Sample()
-	for i := LowPrecLog - 1; i >= 0; i-- {
-		b := (r >> i) & 1
-		ccFrac64LoBit := (ccFrac64Lo >> i) & 1
-		if b > ccFrac64LoBit {
-			return s.sampleC(ccFrac64Hi) + ccInt
-		}
-		if b < ccFrac64LoBit {
-			return s.sampleC(ccFrac64Hi+1) + ccInt
-		}
-	}
-
-	return s.sampleC(ccFrac64Hi+1) + ccInt
 }

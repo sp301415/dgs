@@ -2,16 +2,15 @@ package dgs
 
 import (
 	"math"
-	"math/big"
 	"slices"
-
-	"github.com/ALTree/bigfloat"
 )
 
 const TailCut = 6
 
 // ReverseCDTSampler is a Discrete Gaussian sampler based on Reverse Cumulative Distribution Table.
 // Recommended for fixed and small center and sigma.
+//
+// Note that the stdandard devation of the samples is sigma/sqrt(2pi).
 type ReverseCDTSampler struct {
 	// UniformSampler is a base uniform sampler.
 	UniformSampler *UniformSampler
@@ -39,6 +38,7 @@ type ReverseCDTSampler struct {
 
 // NewReverseCDTSampler creates a new ReverseCDTSampler.
 func NewReverseCDTSampler(center, sigma float64) *ReverseCDTSampler {
+	normFactor := math.Exp2(64)
 	cFrac := center - math.Floor(center)
 	cInt := int64(center - cFrac)
 
@@ -46,42 +46,17 @@ func NewReverseCDTSampler(center, sigma float64) *ReverseCDTSampler {
 	tailHigh := int64(math.Round(center + TailCut*sigma))
 	tailCount := int(tailHigh - tailLow + 1)
 
-	// Use sufficient precision, usually 64 bits are enough.
-	// But, here we use 128 bits to be safe.
-	cBig := big.NewFloat(cFrac).SetPrec(128) // c
-	sBig := big.NewFloat(sigma).SetPrec(128) // s
-
-	sBigDoubleSq := big.NewFloat(0).SetPrec(128).Mul(sBig, sBig) // 2s^2
-	sBigDoubleSq.Add(sBigDoubleSq, sBigDoubleSq)
-	sBigDoubleSq.Neg(sBigDoubleSq)
-
-	// Buffers
-	xBig := big.NewFloat(0).SetPrec(128)
-	logRhoBig := big.NewFloat(0).SetPrec(128)
-
-	// Fill the Gaussian Table, without normalization.
-	// We want T[i+1] - T[i] = rho(i).
-	tableBig := make([]*big.Float, tailCount+1)
-	tableBig[0] = big.NewFloat(0).SetPrec(128)
-	for i, x := 1, tailLow; x <= tailHigh; i, x = i+1, x+1 {
-		xBig.SetFloat64(float64(x))
-		logRhoBig.Sub(xBig, cBig)              // x - c
-		logRhoBig.Abs(logRhoBig)               // |x - c|
-		logRhoBig.Mul(logRhoBig, logRhoBig)    // |x - c|^2
-		logRhoBig.Quo(logRhoBig, sBigDoubleSq) // - |x - c|^2 / 2s^2
-
-		tableBig[i] = bigfloat.Exp(logRhoBig)       // exp(- |x - c|^2 / 2s^2)
-		tableBig[i].Add(tableBig[i-1], tableBig[i]) // Save the cumulative sum
-	}
-
-	// Normalize the Gaussian Table.
-	Exp64Big := big.NewFloat(0).SetPrec(128).SetMantExp(big.NewFloat(1), 64) // 2^64
-	sumBig := tableBig[len(tableBig)-1]
-	table := make([]uint64, len(tableBig))
-	for i := range tableBig {
-		tableBig[i].Quo(tableBig[i], sumBig)   // Normalize
-		tableBig[i].Mul(tableBig[i], Exp64Big) // Move to uint64
-		table[i], _ = tableBig[i].Uint64()
+	table := make([]uint64, tailCount)
+	cdf := 0.0
+	for i, x := 0, tailLow; x <= tailHigh; i, x = i+1, x+1 {
+		xf := float64(x)
+		rho := math.Exp(-math.Pi*(xf-cFrac)*(xf-cFrac)/(sigma*sigma)) / sigma
+		cdf += rho
+		if cdf > 1 {
+			table[i] = math.MaxUint64
+		} else {
+			table[i] = uint64(math.Round(cdf * normFactor))
+		}
 	}
 
 	return &ReverseCDTSampler{
@@ -103,7 +78,9 @@ func NewReverseCDTSampler(center, sigma float64) *ReverseCDTSampler {
 // Sample samples one value from the distribution.
 func (s *ReverseCDTSampler) Sample() int64 {
 	u := s.UniformSampler.Sample()
-	r, _ := slices.BinarySearch(s.Table, u)
-	// Here, we ignore the (extremely rare) case when s.Table[r] = u.
+	r, ok := slices.BinarySearch(s.Table, u)
+	if ok {
+		r -= 1
+	}
 	return int64(r) + s.cInt + s.TailLow
 }
