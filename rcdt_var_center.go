@@ -7,10 +7,10 @@ import (
 const (
 	// BaseLog is the log of number of the base sampler.
 	// Increasing this value will result in faster sampling, but with more memory usage.
-	BaseLog = 4
+	BaseLog = 10
 
 	// SampleDepth is ceil(PrecLog / BaseLog).
-	SampleDepth = 8
+	SampleDepth = 3
 
 	// hiPrecLog is the precision of the sampler.
 	hiPrecLog = BaseLog * SampleDepth
@@ -31,11 +31,11 @@ type ReverseCDTVarCenterSampler struct {
 // NewReverseCDTVarCenterSampler creates a new ReverseCDTVarCenterSampler.
 func NewReverseCDTVarCenterSampler(sigma float64) *ReverseCDTVarCenterSampler {
 	// // Fixing sigma blowup
-	// bk := 0.0
-	// for i := 0; i < SampleDepth; i++ {
-	// 	bk += math.Pow(1<<BaseLog, -2*float64(i))
-	// }
-	// sigma /= math.Sqrt(bk)
+	bk := 0.0
+	for i := 0; i < SampleDepth; i++ {
+		bk += math.Pow(1<<BaseLog, -2*float64(i))
+	}
+	sigma /= math.Sqrt(bk)
 
 	baseSamplers := [1 << BaseLog]*ReverseCDTSampler{}
 	for i := 0; i < 1<<BaseLog; i++ {

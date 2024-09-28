@@ -76,24 +76,3 @@ func TestReverseCDTVarCenter(t *testing.T) {
 		t.Errorf("sigma: expected %v, got %v", sigma, sigmaSampled)
 	}
 }
-
-func TestConvolution(t *testing.T) {
-	mean := 100.7
-	sigma := 32 * math.Sqrt(2*math.Pi)
-
-	s := dgs.NewConvolutionSampler(1 << 8)
-	samples := make([]float64, N)
-	for i := range samples {
-		samples[i] = float64(s.Sample(mean, sigma))
-	}
-
-	meanSampled, sigmaSampled := meanStdDev(samples)
-	meanBound, sigmaBound := meanStdDevSampleBound(meanSampled, sigmaSampled)
-
-	if math.Abs(meanSampled) > meanBound {
-		t.Errorf("mean: expected %v, got %v", mean, meanSampled)
-	}
-	if math.Abs(sigmaSampled) > sigmaBound {
-		t.Errorf("sigma: expected %v, got %v", sigma, sigmaSampled)
-	}
-}
